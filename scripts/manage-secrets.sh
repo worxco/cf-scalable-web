@@ -10,6 +10,7 @@
 # Returns: 0 on success, 1 on error
 # Dependencies: aws-cli, jq
 # Created: 2026-01-26
+# Updated: 2026-01-26 - Enhanced dry-run implementation
 #
 
 set -euo pipefail
@@ -26,8 +27,78 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# -----------------------------------------------------------------------------
+# Function: format_command
+# Purpose: Format a command array into a shell-safe printable string
+# Parameters: command arguments (varargs)
+# Returns: Formatted command string
+# Dependencies: printf
+# -----------------------------------------------------------------------------
+format_command() {
+  local parts=("$@")
+  local formatted=""
+  local part
+  for part in "${parts[@]}"; do
+    formatted+=" $(printf '%q' "$part")"
+  done
+  echo "${formatted# }"
+}
+
+# -----------------------------------------------------------------------------
+# Function: print_dry_run
+# Purpose: Emit a formatted dry-run message for a command that would run
+# Parameters: command arguments (varargs)
+# Returns: Formatted dry-run output
+# Dependencies: format_command
+# -----------------------------------------------------------------------------
+print_dry_run() {
+  echo -e "${YELLOW}[dry-run]${NC} $(format_command "$@")"
+}
+
+# -----------------------------------------------------------------------------
+# Function: run_cmd
+# Purpose: Execute a command unless dry-run mode is enabled
+# Parameters: command arguments (varargs)
+# Returns: Command exit code (or 0 in dry-run mode)
+# Dependencies: print_dry_run
+# -----------------------------------------------------------------------------
+run_cmd() {
+  if [[ "$DRY_RUN" == "true" ]]; then
+    print_dry_run "$@"
+    return 0
+  fi
+  "$@"
+}
+
+# -----------------------------------------------------------------------------
+# Function: run_cmd_capture
+# Purpose: Execute a command and capture its stdout into a variable, honoring dry-run
+# Parameters: variable_name, command arguments (varargs)
+# Returns: Command exit code (or 0 in dry-run mode)
+# Dependencies: print_dry_run
+# -----------------------------------------------------------------------------
+run_cmd_capture() {
+  local __var="$1"
+  shift
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    print_dry_run "$@"
+    printf -v "$__var" '%s' ""
+    return 0
+  fi
+
+  local __output
+  __output="$("$@")"
+  printf -v "$__var" '%s' "$__output"
+}
+
+# -----------------------------------------------------------------------------
 # Function: print_usage
 # Purpose: Display usage information
+# Parameters: None
+# Returns: None
+# Dependencies: None
+# -----------------------------------------------------------------------------
 print_usage() {
   cat << EOF
 Usage: $0 [--dry-run] <action> [arguments]
@@ -39,6 +110,7 @@ Actions:
   add-ssh-key <name> <public-key-file> [prefix]
       Add an SSH public key to Secrets Manager
       Example: $0 add-ssh-key kurt ~/.ssh/id_rsa.pub worxco/prod
+      Example (dry-run): $0 --dry-run add-ssh-key kurt ~/.ssh/id_rsa.pub worxco/prod
 
   add-secret <secret-name> <value> [prefix]
       Add a generic secret
@@ -53,7 +125,7 @@ Actions:
       Example: $0 list worxco/prod
 
   delete <secret-name> [prefix]
-      Delete a secret (requires confirmation)
+      Delete a secret (requires confirmation, skipped in dry-run)
       Example: $0 delete ssh-keys/kurt worxco/prod
 
   init <prefix>
@@ -63,12 +135,18 @@ Actions:
 Environment Variables:
   AWS_REGION    AWS region (default: us-east-1)
   AWS_PROFILE   AWS CLI profile to use (optional)
+  DRY_RUN       Set to "true" to enable dry-run mode (optional)
 
 EOF
 }
 
+# -----------------------------------------------------------------------------
 # Function: check_dependencies
-# Purpose: Verify required tools are installed
+# Purpose: Verify required tools are installed and AWS credentials configured
+# Parameters: None
+# Returns: 0 on success, 1 on error
+# Dependencies: aws-cli, jq
+# -----------------------------------------------------------------------------
 check_dependencies() {
   local missing=()
 
@@ -84,19 +162,25 @@ check_dependencies() {
     return 1
   fi
 
-  # Check AWS credentials
-  if ! aws sts get-caller-identity &> /dev/null; then
-    echo -e "${RED}Error: AWS credentials not configured${NC}" >&2
-    echo "Run: aws configure" >&2
-    return 1
+  # Check AWS credentials (skip in dry-run for offline testing)
+  if [[ "$DRY_RUN" != "true" ]]; then
+    if ! aws sts get-caller-identity &> /dev/null; then
+      echo -e "${RED}Error: AWS credentials not configured${NC}" >&2
+      echo "Run: aws configure" >&2
+      return 1
+    fi
   fi
 
   return 0
 }
 
+# -----------------------------------------------------------------------------
 # Function: add_ssh_key
 # Purpose: Add SSH public key to Secrets Manager
 # Parameters: name, public_key_file, prefix
+# Returns: 0 on success, 1 on error
+# Dependencies: run_cmd, AWS CLI, Secrets Manager
+# -----------------------------------------------------------------------------
 add_ssh_key() {
   local name="$1"
   local key_file="$2"
@@ -113,21 +197,32 @@ add_ssh_key() {
 
   echo -e "${BLUE}Adding SSH key: $secret_name${NC}"
 
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${YELLOW}[DRY-RUN] Would add/update SSH key: $secret_name${NC}"
-    echo -e "${YELLOW}[DRY-RUN] Key content: ${#key_content} characters${NC}"
+  if [[ "$DRY_RUN" == "true" ]]; then
+    print_dry_run aws secretsmanager describe-secret --secret-id "$secret_name" --region "$AWS_REGION"
+    echo -e "${YELLOW}[dry-run]${NC} Would check if secret exists, then either update or create:"
+    echo -e "${YELLOW}[dry-run]${NC}   If exists:"
+    print_dry_run aws secretsmanager put-secret-value \
+      --secret-id "$secret_name" \
+      --secret-string "[${#key_content} characters]" \
+      --region "$AWS_REGION"
+    echo -e "${YELLOW}[dry-run]${NC}   If not exists:"
+    print_dry_run aws secretsmanager create-secret \
+      --name "$secret_name" \
+      --description "SSH public key for $name" \
+      --secret-string "[${#key_content} characters]" \
+      --region "$AWS_REGION"
     return 0
   fi
 
   if aws secretsmanager describe-secret --secret-id "$secret_name" --region "$AWS_REGION" &> /dev/null; then
     echo -e "${YELLOW}Secret already exists. Updating...${NC}"
-    aws secretsmanager put-secret-value \
+    run_cmd aws secretsmanager put-secret-value \
       --secret-id "$secret_name" \
       --secret-string "$key_content" \
       --region "$AWS_REGION" \
       --output json | jq -r '.ARN'
   else
-    aws secretsmanager create-secret \
+    run_cmd aws secretsmanager create-secret \
       --name "$secret_name" \
       --description "SSH public key for $name" \
       --secret-string "$key_content" \
@@ -138,9 +233,13 @@ add_ssh_key() {
   echo -e "${GREEN}✓ SSH key added successfully${NC}"
 }
 
+# -----------------------------------------------------------------------------
 # Function: add_secret
-# Purpose: Add a generic secret
+# Purpose: Add a generic secret to Secrets Manager
 # Parameters: secret_name, value, prefix
+# Returns: 0 on success, 1 on error
+# Dependencies: run_cmd, AWS CLI, Secrets Manager
+# -----------------------------------------------------------------------------
 add_secret() {
   local name="$1"
   local value="$2"
@@ -149,21 +248,26 @@ add_secret() {
 
   echo -e "${BLUE}Adding secret: $secret_name${NC}"
 
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${YELLOW}[DRY-RUN] Would add/update secret: $secret_name${NC}"
-    echo -e "${YELLOW}[DRY-RUN] Value length: ${#value} characters${NC}"
+  if [[ "$DRY_RUN" == "true" ]]; then
+    print_dry_run aws secretsmanager describe-secret --secret-id "$secret_name" --region "$AWS_REGION"
+    echo -e "${YELLOW}[dry-run]${NC} Would check if secret exists, then either update or create:"
+    echo -e "${YELLOW}[dry-run]${NC}   Value length: ${#value} characters"
+    print_dry_run aws secretsmanager put-secret-value \
+      --secret-id "$secret_name" \
+      --secret-string "[REDACTED]" \
+      --region "$AWS_REGION"
     return 0
   fi
 
   if aws secretsmanager describe-secret --secret-id "$secret_name" --region "$AWS_REGION" &> /dev/null; then
     echo -e "${YELLOW}Secret already exists. Updating...${NC}"
-    aws secretsmanager put-secret-value \
+    run_cmd aws secretsmanager put-secret-value \
       --secret-id "$secret_name" \
       --secret-string "$value" \
       --region "$AWS_REGION" \
       --output json | jq -r '.ARN'
   else
-    aws secretsmanager create-secret \
+    run_cmd aws secretsmanager create-secret \
       --name "$secret_name" \
       --description "Secret: $name" \
       --secret-string "$value" \
@@ -174,9 +278,13 @@ add_secret() {
   echo -e "${GREEN}✓ Secret added successfully${NC}"
 }
 
+# -----------------------------------------------------------------------------
 # Function: get_secret
-# Purpose: Retrieve a secret value
+# Purpose: Retrieve a secret value from Secrets Manager
 # Parameters: secret_name, prefix
+# Returns: 0 on success, 1 on error
+# Dependencies: run_cmd, AWS CLI, Secrets Manager
+# -----------------------------------------------------------------------------
 get_secret() {
   local name="$1"
   local prefix="${2:-$DEFAULT_PREFIX}"
@@ -184,21 +292,41 @@ get_secret() {
 
   echo -e "${BLUE}Retrieving secret: $secret_name${NC}"
 
-  aws secretsmanager get-secret-value \
+  if [[ "$DRY_RUN" == "true" ]]; then
+    print_dry_run aws secretsmanager get-secret-value \
+      --secret-id "$secret_name" \
+      --region "$AWS_REGION" \
+      --query SecretString \
+      --output text
+    echo -e "${YELLOW}[dry-run]${NC} (In a real run, the secret value would be displayed here)"
+    return 0
+  fi
+
+  run_cmd aws secretsmanager get-secret-value \
     --secret-id "$secret_name" \
     --region "$AWS_REGION" \
     --output json | jq -r '.SecretString'
 }
 
+# -----------------------------------------------------------------------------
 # Function: list_secrets
-# Purpose: List all secrets with given prefix
+# Purpose: List all secrets with a given prefix
 # Parameters: prefix
+# Returns: 0 on success
+# Dependencies: AWS CLI, Secrets Manager
+# -----------------------------------------------------------------------------
 list_secrets() {
   local prefix="${1:-$DEFAULT_PREFIX}"
 
   echo -e "${BLUE}Secrets with prefix: $prefix${NC}\n"
 
-  aws secretsmanager list-secrets \
+  if [[ "$DRY_RUN" == "true" ]]; then
+    print_dry_run aws secretsmanager list-secrets --region "$AWS_REGION"
+    echo -e "${YELLOW}[dry-run]${NC} (Would filter by prefix '$prefix' and display in table format)"
+    return 0
+  fi
+
+  run_cmd aws secretsmanager list-secrets \
     --region "$AWS_REGION" \
     --output json | \
     jq -r --arg prefix "$prefix" \
@@ -207,9 +335,13 @@ list_secrets() {
     column -t -s $'\t'
 }
 
+# -----------------------------------------------------------------------------
 # Function: delete_secret
-# Purpose: Delete a secret
+# Purpose: Delete a secret from Secrets Manager
 # Parameters: secret_name, prefix
+# Returns: 0 on success, 1 on error
+# Dependencies: run_cmd, AWS CLI, Secrets Manager
+# -----------------------------------------------------------------------------
 delete_secret() {
   local name="$1"
   local prefix="${2:-$DEFAULT_PREFIX}"
@@ -217,8 +349,12 @@ delete_secret() {
 
   echo -e "${YELLOW}WARNING: This will delete secret: $secret_name${NC}"
 
-  if [ "$DRY_RUN" = true ]; then
-    echo -e "${YELLOW}[DRY-RUN] Would delete secret: $secret_name (7-day recovery window)${NC}"
+  if [[ "$DRY_RUN" == "true" ]]; then
+    print_dry_run aws secretsmanager delete-secret \
+      --secret-id "$secret_name" \
+      --recovery-window-in-days 7 \
+      --region "$AWS_REGION"
+    echo -e "${YELLOW}[dry-run]${NC} (In a real run, would prompt for 'yes' confirmation before deletion)"
     return 0
   fi
 
@@ -229,7 +365,7 @@ delete_secret() {
     return 0
   fi
 
-  aws secretsmanager delete-secret \
+  run_cmd aws secretsmanager delete-secret \
     --secret-id "$secret_name" \
     --recovery-window-in-days 7 \
     --region "$AWS_REGION"
@@ -237,13 +373,26 @@ delete_secret() {
   echo -e "${GREEN}✓ Secret scheduled for deletion (7-day recovery window)${NC}"
 }
 
+# -----------------------------------------------------------------------------
 # Function: init_secrets
 # Purpose: Initialize all required secrets for deployment
 # Parameters: prefix
+# Returns: 0 on success
+# Dependencies: add_secret, add_ssh_key
+# -----------------------------------------------------------------------------
 init_secrets() {
   local prefix="${1:-$DEFAULT_PREFIX}"
 
   echo -e "${BLUE}Initializing secrets for prefix: $prefix${NC}\n"
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    echo -e "${YELLOW}[dry-run]${NC} Would interactively prompt for:"
+    echo -e "${YELLOW}[dry-run]${NC}   - Root password"
+    echo -e "${YELLOW}[dry-run]${NC}   - Notification email"
+    echo -e "${YELLOW}[dry-run]${NC}   - SSH keys (multiple)"
+    echo -e "${YELLOW}[dry-run]${NC} Then would create secrets using add_secret and add_ssh_key functions"
+    return 0
+  fi
 
   # Root password
   echo -e "${YELLOW}Setting root password...${NC}"
@@ -281,10 +430,12 @@ init_secrets() {
   echo -e "\n${BLUE}Note: RDS and Redis secrets will be auto-generated by CloudFormation${NC}"
 }
 
+# -----------------------------------------------------------------------------
 # Main script
+# -----------------------------------------------------------------------------
 main() {
   # Parse --dry-run flag
-  if [ "$1" = "--dry-run" ]; then
+  if [ "$1" = "--dry-run" ] 2>/dev/null; then
     DRY_RUN=true
     shift
   fi
@@ -297,7 +448,8 @@ main() {
   check_dependencies || exit 1
 
   if [ "$DRY_RUN" = true ]; then
-    echo -e "${YELLOW}=== DRY-RUN MODE ===${NC}\n"
+    echo -e "${YELLOW}=== DRY-RUN MODE ===${NC}"
+    echo -e "${YELLOW}No changes will be made to AWS${NC}\n"
   fi
 
   local action="$1"
