@@ -967,6 +967,7 @@ Resources:
 
   # SES SMTP VPC Endpoint
   # Enables email sending from private subnets without NAT Gateway
+  # NOTE: SES SMTP endpoint only supports specific AZs, so we use only the first subnet
   SESVPCEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
@@ -976,8 +977,6 @@ Resources:
       PrivateDnsEnabled: true
       SubnetIds:
         - !Ref PrivateTier3Subnet1
-        - !If [HasTwoAZs, !Ref PrivateTier3Subnet2, !Ref 'AWS::NoValue']
-        - !If [HasThreeAZs, !Ref PrivateTier3Subnet3, !Ref 'AWS::NoValue']
       SecurityGroupIds:
         - !Ref SESEndpointSecurityGroup
 

@@ -97,7 +97,10 @@ Resources:
   CacheParameterGroup:
     Type: AWS::ElastiCache::ParameterGroup
     Properties:
-      CacheParameterGroupFamily: !Sub 'redis${RedisVersion}'
+      # Family uses major version only (e.g., redis7, not redis7.1)
+      CacheParameterGroupFamily: !Sub
+        - 'redis${MajorVersion}'
+        - MajorVersion: !Select [0, !Split ['.', !Ref RedisVersion]]
       Description: Redis parameter group optimized for Drupal/WordPress
       Properties:
         maxmemory-policy: allkeys-lru
@@ -120,8 +123,8 @@ Resources:
       Description: Redis AUTH token
       GenerateSecretString:
         PasswordLength: 32
-        ExcludeCharacters: '"@/\'
-        RequireEachIncludedType: true
+        ExcludePunctuation: true
+        IncludeSpace: false
       Tags:
         - Key: Name
           Value: !Sub '${EnvironmentName}-redis-auth-token'

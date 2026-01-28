@@ -75,11 +75,15 @@ Parameters:
   PostgreSQLVersion:
     Type: String
     Description: PostgreSQL engine version
-    Default: '16.1'
+    Default: '16.11'
     AllowedValues:
-      - '16.1'
-      - '15.5'
-      - '14.10'
+      - '16.6'
+      - '16.8'
+      - '16.9'
+      - '16.10'
+      - '16.11'
+      - '15.10'
+      - '14.15'
 
   BackupRetentionDays:
     Type: Number
@@ -100,10 +104,17 @@ Parameters:
     AllowedValues: [true, false]
     Default: false
 
+  EnableMultiAZ:
+    Type: String
+    Description: Enable Multi-AZ deployment
+    AllowedValues: [true, false]
+    Default: true
+
 Conditions:
   PerformanceInsightsEnabled: !Equals [!Ref EnablePerformanceInsights, true]
   EnhancedMonitoringEnabled: !Equals [!Ref EnableEnhancedMonitoring, true]
   StorageAutoscalingEnabled: !Not [!Equals [!Ref DBMaxAllocatedStorage, 0]]
+  MultiAZEnabled: !Equals [!Ref EnableMultiAZ, true]
 
 Resources:
   # ========================================
@@ -115,9 +126,10 @@ Resources:
     Properties:
       DBSubnetGroupName: !Sub '${EnvironmentName}-db-subnet-group'
       DBSubnetGroupDescription: Subnet group for RDS database
+      # Uses data tier subnets (requires minimum 2 AZs)
       SubnetIds: !Split
         - ','
-        - Fn::ImportValue: !Sub '${EnvironmentName}-php-subnets'
+        - Fn::ImportValue: !Sub '${EnvironmentName}-data-subnets'
       Tags:
         - Key: Name
           Value: !Sub '${EnvironmentName}-db-subnet-group'
@@ -133,20 +145,23 @@ Resources:
     Properties:
       DBParameterGroupName: !Sub '${EnvironmentName}-postgres-params'
       Description: PostgreSQL parameter group optimized for Drupal/WordPress
-      Family: !Sub 'postgres${PostgreSQLVersion}'
+      # Family uses major version only (e.g., postgres16, not postgres16.1)
+      Family: !Sub
+        - 'postgres${MajorVersion}'
+        - MajorVersion: !Select [0, !Split ['.', !Ref PostgreSQLVersion]]
       Parameters:
         max_connections: '300'
         shared_buffers: '{DBInstanceClassMemory/4096}'
         effective_cache_size: '{DBInstanceClassMemory*3/4096}'
         maintenance_work_mem: '{DBInstanceClassMemory/16384}'
         checkpoint_completion_target: '0.9'
-        wal_buffers: '16MB'
+        wal_buffers: '16384'
         default_statistics_target: '100'
         random_page_cost: '1.1'
         effective_io_concurrency: '200'
-        work_mem: '4MB'
-        min_wal_size: '1GB'
-        max_wal_size: '4GB'
+        work_mem: '4096'
+        min_wal_size: '1048576'
+        max_wal_size: '4194304'
       Tags:
         - Key: Name
           Value: !Sub '${EnvironmentName}-postgres-params'
@@ -219,7 +234,7 @@ Resources:
       DBParameterGroupName: !Ref DBParameterGroup
       VPCSecurityGroups:
         - Fn::ImportValue: !Sub '${EnvironmentName}-rds-sg-id'
-      MultiAZ: true
+      MultiAZ: !If [MultiAZEnabled, true, false]
       BackupRetentionPeriod: !Ref BackupRetentionDays
       PreferredBackupWindow: '03:00-04:00'
       PreferredMaintenanceWindow: 'sun:04:00-sun:05:00'

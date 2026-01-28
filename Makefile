@@ -456,11 +456,13 @@ destroy-iam:  ## Delete IAM stack
 	@echo "$(GREEN)✓ IAM stack deleted: $(IAM_STACK)$(NC)"
 
 destroy-storage:  ## Delete storage stack (WARNING: Data loss!)
-	@echo "$(RED)WARNING: This will delete FSx and S3 with all data!$(NC)"
-	@read -p "Type 'yes' to confirm: " confirm; \
-	if [ "$$confirm" != "yes" ]; then \
-		echo "Cancelled"; \
-		exit 0; \
+	@if [ "$(CONFIRMED)" != "yes" ]; then \
+		echo "$(RED)WARNING: This will delete FSx and S3 with all data!$(NC)"; \
+		read -p "Type 'yes' to confirm: " confirm; \
+		if [ "$$confirm" != "yes" ]; then \
+			echo "Cancelled"; \
+			exit 0; \
+		fi; \
 	fi
 	@echo "$(YELLOW)Deleting storage stack: $(STORAGE_STACK)$(NC)"
 	@time aws cloudformation delete-stack --stack-name $(STORAGE_STACK) --region $(AWS_REGION)
@@ -469,11 +471,13 @@ destroy-storage:  ## Delete storage stack (WARNING: Data loss!)
 	@echo "$(GREEN)✓ Storage stack deleted: $(STORAGE_STACK)$(NC)"
 
 destroy-database:  ## Delete database stack (WARNING: Data loss!)
-	@echo "$(RED)WARNING: This will delete the database and all data!$(NC)"
-	@read -p "Type 'yes' to confirm: " confirm; \
-	if [ "$$confirm" != "yes" ]; then \
-		echo "Cancelled"; \
-		exit 0; \
+	@if [ "$(CONFIRMED)" != "yes" ]; then \
+		echo "$(RED)WARNING: This will delete the database and all data!$(NC)"; \
+		read -p "Type 'yes' to confirm: " confirm; \
+		if [ "$$confirm" != "yes" ]; then \
+			echo "Cancelled"; \
+			exit 0; \
+		fi; \
 	fi
 	@echo "$(YELLOW)Deleting database stack: $(DATABASE_STACK)$(NC)"
 	@time aws cloudformation delete-stack --stack-name $(DATABASE_STACK) --region $(AWS_REGION)
@@ -498,11 +502,11 @@ destroy-all:  ## Delete all stacks (reverse order, with confirmation)
 		echo "Cancelled"; \
 		exit 0; \
 	fi
-	@$(MAKE) destroy-cache ENV=$(ENV) || true
-	@$(MAKE) destroy-database ENV=$(ENV) || true
-	@$(MAKE) destroy-storage ENV=$(ENV) || true
-	@$(MAKE) destroy-iam ENV=$(ENV) || true
-	@$(MAKE) destroy-vpc ENV=$(ENV)
+	@$(MAKE) destroy-cache ENV=$(ENV) CONFIRMED=yes || true
+	@$(MAKE) destroy-database ENV=$(ENV) CONFIRMED=yes || true
+	@$(MAKE) destroy-storage ENV=$(ENV) CONFIRMED=yes || true
+	@$(MAKE) destroy-iam ENV=$(ENV) CONFIRMED=yes || true
+	@$(MAKE) destroy-vpc ENV=$(ENV) CONFIRMED=yes
 	@echo "$(GREEN)✓ All stacks deleted for ENV=$(ENV)$(NC)"
 
 # -----------------------------------------------------------------------------

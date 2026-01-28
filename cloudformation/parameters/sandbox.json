@@ -2,7 +2,7 @@
   "Parameters": {
     "EnvironmentName": "sandbox",
     "VPCCidr": "10.200.0.0/16",
-    "AvailabilityZoneCount": "1",
+    "AvailabilityZoneCount": "2",
     "EnableVPCFlowLogs": "false",
     "EnableNATGateway": "false",
     "EnableNATGatewayHA": "false",
@@ -19,7 +19,7 @@
     "DBMaxAllocatedStorage": "100",
     "DBName": "drupal",
     "DBMasterUsername": "dbadmin",
-    "PostgreSQLVersion": "16.1",
+    "PostgreSQLVersion": "16.11",
     "BackupRetentionDays": "1",
     "EnablePerformanceInsights": "false",
     "EnableEnhancedMonitoring": "false",
