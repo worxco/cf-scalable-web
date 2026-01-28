@@ -58,6 +58,13 @@ Parameters:
     AllowedValues: [true, false]
     Default: true
 
+  BucketSuffix:
+    Type: String
+    Description: Unique suffix for S3 bucket names (ensures global uniqueness)
+    AllowedPattern: '^[a-z0-9-]{4,12}$'
+    ConstraintDescription: Must be 4-12 lowercase letters, numbers, or hyphens
+    Default: change-me
+
 Conditions:
   S3VersioningEnabled: !Equals [!Ref EnableS3Versioning, true]
   MultiAZDeployment: !Equals [!Ref FSxDeploymentType, MULTI_AZ_1]
@@ -113,7 +120,7 @@ Resources:
   MediaBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub '${EnvironmentName}-drupal-media'
+      BucketName: !Sub '${EnvironmentName}-drupal-media-${BucketSuffix}'
       VersioningConfiguration:
         Status: !If [S3VersioningEnabled, Enabled, Suspended]
       BucketEncryption:
@@ -136,7 +143,7 @@ Resources:
               DaysAfterInitiation: 7
       Tags:
         - Key: Name
-          Value: !Sub '${EnvironmentName}-drupal-media'
+          Value: !Sub '${EnvironmentName}-drupal-media-${BucketSuffix}'
         - Key: Environment
           Value: !Ref EnvironmentName
 
@@ -144,7 +151,7 @@ Resources:
   BackupBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub '${EnvironmentName}-backups'
+      BucketName: !Sub '${EnvironmentName}-backups-${BucketSuffix}'
       VersioningConfiguration:
         Status: !If [S3VersioningEnabled, Enabled, Suspended]
       BucketEncryption:
@@ -168,7 +175,7 @@ Resources:
             ExpirationInDays: 90
       Tags:
         - Key: Name
-          Value: !Sub '${EnvironmentName}-backups'
+          Value: !Sub '${EnvironmentName}-backups-${BucketSuffix}'
         - Key: Environment
           Value: !Ref EnvironmentName
 
@@ -176,7 +183,7 @@ Resources:
   ImageBuilderBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub '${EnvironmentName}-image-builder'
+      BucketName: !Sub '${EnvironmentName}-image-builder-${BucketSuffix}'
       VersioningConfiguration:
         Status: Enabled
       BucketEncryption:
@@ -195,7 +202,7 @@ Resources:
             NoncurrentVersionExpirationInDays: 90
       Tags:
         - Key: Name
-          Value: !Sub '${EnvironmentName}-image-builder'
+          Value: !Sub '${EnvironmentName}-image-builder-${BucketSuffix}'
         - Key: Environment
           Value: !Ref EnvironmentName
 

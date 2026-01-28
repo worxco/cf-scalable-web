@@ -15,8 +15,10 @@
 #   make show-params ENV=sandbox    Show parameters for environment
 #   make status ENV=sandbox         Show all stack statuses
 #
+include .env
+export
 
-.PHONY: help validate show-params status \
+.PHONY: help env-check validate show-params status \
         deploy-all deploy-vpc deploy-iam deploy-storage deploy-database deploy-cache \
         verify-vpc verify-iam verify-storage verify-database verify-cache \
         destroy-all destroy-vpc destroy-iam destroy-storage destroy-database destroy-cache \
@@ -68,6 +70,25 @@ NC := \033[0m
 
 .DEFAULT_GOAL := help
 
+env-check:  ## Display current AWS environment variables
+	@echo "$(BLUE)AWS Environment Check$(NC)"
+	@echo "$(BLUE)========================================$(NC)"
+	@echo "  AWS_PROFILE:         $(CYAN)$${AWS_PROFILE:-<not set>}$(NC)"
+	@echo "  AWS_REGION:          $(CYAN)$${AWS_REGION:-$(AWS_REGION)}$(NC)"
+	@echo "  AWS_PAGER:           $(CYAN)$${AWS_PAGER:-<not set>}$(NC)"
+	@echo "  AWS_CLI_AUTO_PROMPT: $(CYAN)$${AWS_CLI_AUTO_PROMPT:-<not set>}$(NC)"
+	@echo "$(BLUE)========================================$(NC)"
+	@echo "  ENV (Makefile):      $(CYAN)$(ENV)$(NC)"
+	@echo "  PARAM_FILE:          $(CYAN)$(PARAM_FILE)$(NC)"
+	@echo "  STACK_PREFIX:        $(CYAN)$(STACK_PREFIX)$(NC)"
+	@echo "$(BLUE)========================================$(NC)"
+	@if [ -n "$${AWS_PROFILE}" ]; then \
+		echo "$(BLUE)Verifying credentials...$(NC)"; \
+		aws sts get-caller-identity --output table 2>/dev/null || echo "$(RED)  Failed to get caller identity$(NC)"; \
+	else \
+		echo "$(YELLOW)  AWS_PROFILE not set - skipping credential check$(NC)"; \
+	fi
+
 help:  ## Show this help message
 	@echo "$(BLUE)cf-scalable-web Makefile$(NC)"
 	@echo ""
@@ -76,6 +97,7 @@ help:  ## Show this help message
 	@echo "$(CYAN)Stack Prefix:$(NC) $(STACK_PREFIX)"
 	@echo ""
 	@echo "$(YELLOW)Validation & Info:$(NC)"
+	@echo "  make env-check                Show AWS environment variables"
 	@echo "  make validate                 Validate all CloudFormation templates"
 	@echo "  make show-params              Show parameters for current ENV"
 	@echo "  make status                   Show status of all stacks"
@@ -302,6 +324,13 @@ verify-vpc:  ## Verify VPC deployment
 		echo "  $(RED)VPC not found$(NC)"; \
 	fi
 	@echo ""
+	@echo "$(CYAN)7. All Stack Resources:$(NC)"
+	@aws cloudformation describe-stack-resources \
+		--stack-name $(VPC_STACK) \
+		--query 'StackResources[].{Type:ResourceType,LogicalId:LogicalResourceId,Status:ResourceStatus}' \
+		--output table \
+		--region $(AWS_REGION) 2>/dev/null || echo "  $(RED)Stack not found$(NC)"
+	@echo ""
 	@echo "$(GREEN)✓ VPC verification complete$(NC)"
 
 verify-iam:  ## Verify IAM deployment
@@ -319,6 +348,13 @@ verify-iam:  ## Verify IAM deployment
 	@aws cloudformation describe-stack-resources \
 		--stack-name $(IAM_STACK) \
 		--query 'StackResources[?ResourceType==`AWS::IAM::InstanceProfile`].{LogicalId:LogicalResourceId,PhysicalId:PhysicalResourceId,Status:ResourceStatus}' \
+		--output table \
+		--region $(AWS_REGION) 2>/dev/null || echo "  $(RED)Stack not found$(NC)"
+	@echo ""
+	@echo "$(CYAN)3. All Stack Resources:$(NC)"
+	@aws cloudformation describe-stack-resources \
+		--stack-name $(IAM_STACK) \
+		--query 'StackResources[].{Type:ResourceType,LogicalId:LogicalResourceId,Status:ResourceStatus}' \
 		--output table \
 		--region $(AWS_REGION) 2>/dev/null || echo "  $(RED)Stack not found$(NC)"
 	@echo ""
@@ -341,6 +377,13 @@ verify-storage:  ## Verify storage deployment
 		--output table \
 		--region $(AWS_REGION) 2>/dev/null || echo "  $(RED)Stack not found$(NC)"
 	@echo ""
+	@echo "$(CYAN)3. All Stack Resources:$(NC)"
+	@aws cloudformation describe-stack-resources \
+		--stack-name $(STORAGE_STACK) \
+		--query 'StackResources[].{Type:ResourceType,LogicalId:LogicalResourceId,Status:ResourceStatus}' \
+		--output table \
+		--region $(AWS_REGION) 2>/dev/null || echo "  $(RED)Stack not found$(NC)"
+	@echo ""
 	@echo "$(GREEN)✓ Storage verification complete$(NC)"
 
 verify-database:  ## Verify database deployment
@@ -357,6 +400,13 @@ verify-database:  ## Verify database deployment
 	@aws cloudformation describe-stack-resources \
 		--stack-name $(DATABASE_STACK) \
 		--query 'StackResources[?ResourceType==`AWS::RDS::DBSubnetGroup`].{LogicalId:LogicalResourceId,PhysicalId:PhysicalResourceId,Status:ResourceStatus}' \
+		--output table \
+		--region $(AWS_REGION) 2>/dev/null || echo "  $(RED)Stack not found$(NC)"
+	@echo ""
+	@echo "$(CYAN)3. All Stack Resources:$(NC)"
+	@aws cloudformation describe-stack-resources \
+		--stack-name $(DATABASE_STACK) \
+		--query 'StackResources[].{Type:ResourceType,LogicalId:LogicalResourceId,Status:ResourceStatus}' \
 		--output table \
 		--region $(AWS_REGION) 2>/dev/null || echo "  $(RED)Stack not found$(NC)"
 	@echo ""
@@ -377,6 +427,13 @@ verify-cache:  ## Verify cache deployment
 		--query 'ReplicationGroups[].{ReplicationGroupId:ReplicationGroupId,Status:Status,NodeGroups:NodeGroups[0].PrimaryEndpoint.Address}' \
 		--output table \
 		--region $(AWS_REGION) 2>/dev/null || echo "  $(RED)Not found$(NC)"
+	@echo ""
+	@echo "$(CYAN)3. All Stack Resources:$(NC)"
+	@aws cloudformation describe-stack-resources \
+		--stack-name $(CACHE_STACK) \
+		--query 'StackResources[].{Type:ResourceType,LogicalId:LogicalResourceId,Status:ResourceStatus}' \
+		--output table \
+		--region $(AWS_REGION) 2>/dev/null || echo "  $(RED)Stack not found$(NC)"
 	@echo ""
 	@echo "$(GREEN)✓ Cache verification complete$(NC)"
 

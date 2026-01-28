@@ -13,6 +13,7 @@
     "FSxDeploymentType": "SINGLE_AZ_1",
     "FSxAutomaticBackupRetentionDays": "1",
     "EnableS3Versioning": "false",
+    "BucketSuffix": "kv-worxco",
     "DBInstanceClass": "db.t4g.micro",
     "DBAllocatedStorage": "20",
     "DBMaxAllocatedStorage": "100",

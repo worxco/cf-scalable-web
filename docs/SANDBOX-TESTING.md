@@ -12,11 +12,11 @@ This guide covers testing Phase 1 infrastructure in a sandbox AWS account.
 
 2. **AWS CLI Configuration**
    ```bash
-   # Configure sandbox profile
-   aws configure --profile Office
+   # Configure your sandbox profile (replace YOUR_PROFILE with your actual profile name)
+   aws configure --profile YOUR_PROFILE
 
    # Set environment
-   export AWS_PROFILE=Office
+   export AWS_PROFILE=YOUR_PROFILE
    export AWS_REGION=us-east-1
    ```
 
